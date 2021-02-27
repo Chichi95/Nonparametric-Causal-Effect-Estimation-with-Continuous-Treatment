@@ -8,7 +8,17 @@ library(splines2)
 library(base)
 library(dplyr)
 library(magrittr)
+library(gam)
+library(expm)
 #Auxiliary Functions
+#Smoothing splines 
+fit.SS <- function(X, Y, pred_X){
+  data_train <- data.frame(Y = Y, X = X)
+  form<-as.formula(
+    paste0("Y~",paste0("s(X.",seq( 1, ncol(X), 1),")",collapse="+")))
+  model_ET_X <- gam(data=data_train, formula=form)
+  predict(object = model_ET_X,type="response",newdata = data.frame(X = pred_X)) %>% as.vector()
+}
 ##KNN regression and CV
 make_knn_pred = function(k, training, testing, y_ta, y_tt) {
   pred = FNN::knn.reg(train = training, 
@@ -112,7 +122,8 @@ Basis_M_Build <- function(V, Tt, Vbasis_name, Tbasis_name, df_V, df_T, degree, V
 
 #Main Functions
 GCCTE_fit = function(X, idxV = c(1), Tt, Y, Vbasis_name ='Bspline', Tbasis_name = 'PowerSeries',
-                     df_V_pool, df_T_pool, degree, q_type = 'optimal', mu0, ET_X, Vrange, Trange, k_pool, J = 7, CI = FALSE){
+                     df_V_pool, df_T_pool, degree, q_type = 'optimal', mu0, ET_X, Vrange, Trange, k_pool, J = 7, 
+                     nusi_est = 'SS', CI = FALSE){
 #variable description
 ##X: n by dx matrix; idxV: coordinates in X that are V; Tt: treatment vector; Y: outcome vector
 ##Vbasis: basis type for V; Tbasis:basis type for T
@@ -122,8 +133,10 @@ GCCTE_fit = function(X, idxV = c(1), Tt, Y, Vbasis_name ='Bspline', Tbasis_name 
 ##q_type: type of q function
 ##mu0, ET_X: estimated nusicance vectors
 ##Vrange, Trange: lists for range of V and T
-##k_pool, candidates of k for knn regression
-##J, number of rounds for knn's CV
+##k_pool: candidates of k for knn regression
+##J: number of rounds for knn's CV
+##nusi_est: estimator for nusicance, 1) 'SS' = smoothness spline with default settings in  GAM package; 2) 'KNN' = k-nearest neighborhood regression
+##CI: TRUE if want to get confidence interval in est_tau
   
 #solve function to fit with certian degree of V and T
   solve_GCCTE = function(df_V, df_T, CI = FALSE){
@@ -135,12 +148,18 @@ GCCTE_fit = function(X, idxV = c(1), Tt, Y, Vbasis_name ='Bspline', Tbasis_name 
       q_type == 'optimal' ~ {
         q_train <- apply(basis_M, MARGIN = 2, function(v){(ET_X - Tt)*v}) %>%
           as.data.frame %>% as.list;
+        if (nusi_est == 'KNN'){
         kopt_Q <- lapply(q_train, function(v){CV_knn(J, k_pool, X, as.matrix(v))});
         #combine the selected k and sample's q for each basis dimenison, to one list
         q_train_with_k <- Map(list, kopt_Q, q_train);
         Q_num <- q_train_with_k %>% lapply(FUN = function(l){FNN::knn.reg(train = X, 
                                                                           test = X, 
                                                                           y = l[[2]], k = l[[1]])$pred}) %>% unlist;
+        }
+        if (nusi_est == 'SS'){
+          Q_num <- q_train %>% lapply(FUN = function(l){fit.SS(X, l, X)}) %>% unlist;
+        }
+        Q_num
       } 
     ) %>% matrix(nrow = n)
     #Get Smoothing matrix S for GCV and Phi for tau estimation
@@ -192,18 +211,19 @@ GCCTE_fit = function(X, idxV = c(1), Tt, Y, Vbasis_name ='Bspline', Tbasis_name 
   return(final_model)
 }
 
-est_tau <- function(V_pred, Tt_pred, model, CI = FALSE){
+est_tau <- function(V_pred, Tt_pred, model, CI = FALSE, rate = 0.9){
   basis_M_pred <- Basis_M_Build(V_pred, Tt_pred, model$Vbasis_name, model$Tbasis_name, model$df_V, 
                                 model$df_T, model$degree, model$Vrange, model$Trange)
   tau = basis_M_pred %*% model$para
+  z_value = qnorm(1 - (1 - rate)/2)
   if (CI){
     Kn <- model$df_V * model$df_T
     upper <- rep(0,length(Tt_pred)); lower <- rep(0,length(Tt_pred))
     for (obj in 1:length(Tt_pred)){
       A <- basis_M_pred[obj,] %*% model$pre_A
       est_gamma <- A %*% t(A)
-      upper[obj] <- tau[obj] + 1.65 * sqrt(est_gamma * (Kn) / n)
-      lower[obj] <- tau[obj] - 1.65 * sqrt(est_gamma * (Kn) / n)
+      upper[obj] <- tau[obj] + z_value * sqrt(est_gamma * (Kn) / n)
+      lower[obj] <- tau[obj] - z_value * sqrt(est_gamma * (Kn) / n)
     }
     return(list(tau = tau, upper = upper, lower = lower))
   }else{
