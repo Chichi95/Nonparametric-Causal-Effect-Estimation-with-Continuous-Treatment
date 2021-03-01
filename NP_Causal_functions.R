@@ -90,7 +90,9 @@ Basis_M_Build <- function(V, Tt, Vbasis_name, Tbasis_name, df_V, df_T, degree, V
   n <- length(Tt); dim_V <- ncol(V)
   basis_V <-  case_when(
     Vbasis_name == 'Bspline' ~ {
+      if (Vbasis_name == 'Bspline' ){
       apply(V, MARGIN = 2, FUN = function(v){Bspline_construct(v, df_V, degree, Vrange)})
+      } else {0}
     },
     Vbasis_name == 'PowerSeries' ~ {
       apply(V, MARGIN = 2, FUN = function(v){Powerseries_construct_V(v, df_V, Vrange)})
