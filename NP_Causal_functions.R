@@ -156,7 +156,7 @@ GCCTE_fit = function(X, idxV = c(1), Tt, Y, Vbasis_name ='PowerSeries', Tbasis_n
 ##upper bound of splines
 #solve function to fit with certian degree of V and T
   solve_GCCTE = function(df_V, df_T, CI = FALSE){
-    ind_nonzero <- which(df_V != 0)
+    ind_nonzero <- which(df_V != 0) 
     if (length(ind_nonzero) == 0){return(list(singular = 1))}
     Kn = prod(df_V[ind_nonzero]) * df_T
     if (Kn > up_spnum){return(list(singular = 1))}
@@ -183,10 +183,12 @@ GCCTE_fit = function(X, idxV = c(1), Tt, Y, Vbasis_name ='PowerSeries', Tbasis_n
       } 
     ) %>% matrix(nrow = n)
     #Get Smoothing matrix S for GCV and Phi for tau estimation
-    QKn <- Q[, 1:Kn]
-    MpartI <- apply(QKn, 2, function(v){v*(Tt - ET_X)}) %>% t %*% basis_M[, 1:Kn] %>% ginv
-    MpartII <- QKn %>% t %*% diag(as.numeric(Tt - ET_X))
-    MpartIII <- basis_M[, 1:Kn] 
+    if (Kn > 1){
+    QKn <- Q[, 1:Kn] 
+    } else {QKn = Q}
+    MpartI <- apply(QKn, 2, function(v){v*(Tt - ET_X)}) %>% t %*% basis_M[, 1:Kn] %>% ginv 
+    MpartII <- QKn %>% t %*% diag(as.numeric(Tt - ET_X)) 
+    MpartIII <- basis_M[, 1:Kn]
     phi <- MpartI %*% MpartII %*% (Y - mu0)
     S <- MpartIII %*% MpartI %*% MpartII
     MSE <- mean((Y - mu0 - S %*% (Y - mu0))^2)
